@@ -11,8 +11,13 @@ def extract_corners(polygon):
     perimeter = cv.arcLength(contour, True)
 
     for epsilon_factor in [0.01, 0.02, 0.03, 0.05]:
+        # RDP Algo
         approx = cv.approxPolyDP(contour, epsilon_factor * perimeter, True)
         if len(approx) == 4:
+            if (epsilon_factor == 0.05):
+                # Should end earlier; if not, images are overly noisy
+                print("Received high noise")
+                
             return approx.reshape(4, 2)
 
     return None
@@ -29,6 +34,7 @@ def rectify_target(image, corners, size=256):
 
     corners = corners[np.argsort(angles)]
 
+    # Map sorted points to spots on final image
     destination = np.array([
         [0, 0],
         [size - 1, 0],
@@ -36,6 +42,7 @@ def rectify_target(image, corners, size=256):
         [0, size - 1]
     ], dtype=np.float32)
 
+    # Calculate homography matrix for transformation
     H = cv.getPerspectiveTransform(corners.astype(np.float32),destination)
     return cv.warpPerspective(image, H, (size, size))
 
@@ -49,14 +56,15 @@ def display_image(results, img):
                 cv.imshow("Rectified Image", rectified_image)
                 cv.waitKey(0)
 
+# If it is 1, you can use an image in local directory; change to 0 to use webcam
 if (1):
-    # Test on an image
+    # Test on an image in local directory
     img = cv.imread("Vision/hundredfeet.jpg")
     results = model(img, conf=0.6)
     display_image(results, img)
 else:
-    # Test on a video stream
-    cap = cv.VideoCapture(0) # Should be the main camera, if you have continuinty cam, it will be on your phone
+    # Test on a video stream from webcam
+    cap = cv.VideoCapture(0) # Should be the main camera, if you have continuinty cam, it will be on your phone (try 1 or -1 if no feed appears)
     if not cap.isOpened():
         print("Cannot open camera")
         exit()
@@ -65,7 +73,7 @@ else:
         # Capture frame-by-frame
         ret, frame = cap.read()
     
-        # if frame is read correctly ret is True
+        # if frame is read correctly, ret is True
         if not ret:
             print("Can't receive frame (stream end?). Exiting ...")
             break
