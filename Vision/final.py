@@ -25,7 +25,6 @@ cnn = exported_program.module()
 
 """Load template matching files"""
 directory = Path('Vision/Numbers')
-l = []
 files = sorted([f for f in directory.iterdir() if f.is_file() and f.suffix.lower() == ".jpg"])
 
 """Find Squares Algo"""
@@ -189,6 +188,7 @@ def conf_func(diff, val):
 # Run template matching
 def template_match(img):
     # In the final file, we should load the files into cuda before run
+    l = []
     for entry in files:
         template = cv.imread(entry)[:, :, 1]
         res = cv.matchTemplate(img, template, cv.TM_CCOEFF_NORMED)
@@ -218,15 +218,8 @@ def find_numbers(results, image):
                 num_img = retrieve_numbers(rectified_image)
                 num, conf = template_match(num_img)
 
-                # Create new image with information
-                res_img = cv.copyMakeBorder(
-                    num_img, 0, 0, 0, 100, 
-                    borderType=cv.BORDER_CONSTANT, 
-                    value= 0
-                )
-
                 mod = "Tem"
-                if (conf < 0.8):
+                if (conf < 0.85):
                     num_tensor = TF.to_tensor(num_img).unsqueeze(0).to(device)
                     with torch.inference_mode():
                         cnn_output = cnn(num_tensor)
@@ -234,12 +227,25 @@ def find_numbers(results, image):
                             num = torch.argmax(cnn_output, dim=1).item()
                             conf = torch.max(torch.softmax(cnn_output, dim=1)).item()
                             mod = "CNN"
+
+                if (conf < 0.7):
+                    # To avoid false positives
+                    print("Cannot reliably detect image; skipping")
+                    continue
+
+                # Create new image with information
+                res_img = cv.copyMakeBorder(
+                    num_img, 0, 0, 0, 100, 
+                    borderType=cv.BORDER_CONSTANT, 
+                    value= 0
+                )
                 
                 res_img = cv.putText(res_img, f"Number: {num} \n{mod} Conf: \n{conf:4f}", (90, 20), cv.FONT_HERSHEY_PLAIN, 1, 255, 1)
 
                 cv.imshow("Classification", res_img)
                 cv.waitKey(0)
                 cv.destroyWindow("Classification")
+
 
 
 # If it is 1, you can use an image in local directory; change to 0 to use webcam
