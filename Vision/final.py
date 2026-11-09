@@ -4,8 +4,22 @@ import cv2 as cv
 import numpy as np
 from pathlib import Path
 import math
+import torch
+import torchvision.transforms.functional as TF
 
-model = YOLO("Vision/best.pt").to("mps") # Set to 'cpu' if you have Windows or non-M Mac, or 'cuda' if you have Nvidia GPU
+device = (
+    "cuda"
+    if torch.cuda.is_available()
+    else "mps"
+    if torch.backends.mps.is_available()
+    else "cpu"
+)
+
+model = YOLO("Vision/best.pt").to(device)
+
+"""Custom CNN"""
+exported_program = torch.export.load("Vision/team_air_gcp_localization_protoype.pt2")
+cnn = exported_program.module()
 
 """This is the final file with all the final numbers hardcoded"""
 
@@ -17,7 +31,6 @@ files = sorted([f for f in directory.iterdir() if f.is_file() and f.suffix.lower
 """Find Squares Algo"""
 # Extract corners from the square (YOLO26 outputs a segmentation maks, not the points themselves)
 # OpenCV has built in libraries for this
-"""Run on OpenCV"""
 def extract_corners(polygon, shape):
     # We first check if image is fully captured
     # Image shape
@@ -56,7 +69,6 @@ def extract_corners(polygon, shape):
     return None
 
 # Actually fix the image depending on the perspective of the square, and return a rectified image
-"""Calculate matrix with OpenCV, but do transformation with NVIDIA VPI"""
 def rectify_target(image, corners):
     # Sort corners cyclically around their centroid
     center = corners.mean(axis=0)
@@ -82,7 +94,6 @@ def rectify_target(image, corners):
 
 """Display Numbers from Square Algo"""
 # Find where the white and black triangles are located
-"""Perform on VPIIFormat"""
 def analyze_squares(image, padding=10):
     """
     Explanation of params:
@@ -146,7 +157,6 @@ def analyze_squares(image, padding=10):
 
 # This returns a np array of shape (256, 256/2) or (256, heigh/2) = (256, 128) currently containing number
 """THIS IS WHAT GOES INTO IMAGE CLASSIFICATION MODEL"""
-"""Use VPI algorithms instead of OpenCV for this"""
 def retrieve_numbers(rectified_image):
     axis, number_side = analyze_squares(rectified_image)
 
@@ -173,10 +183,8 @@ def retrieve_numbers(rectified_image):
     return num
 
 """Classification with template matching"""
-"""Must be done with OpenCV"""
-"""VPI doesn't have correct template matching algorithms, so we use OpenCV for this"""
-def sigmoid(x):
-    return 2 / (1 + math.exp(20*x))
+def conf_func(diff, val):
+    return ((2 / (1 + math.exp(-20*diff))) - 1) * (1 / (1 + math.exp(-3.7*val)))
 
 # Run template matching
 def template_match(img):
@@ -188,7 +196,7 @@ def template_match(img):
 
     arr = sorted(l)
     # num, conf
-    return np.argmax(np.array(l)), 1 - sigmoid(arr[-1] - arr[-2])
+    return np.argmax(np.array(l)), 1 - conf_func(arr[-1] - arr[-2], arr[-1])
 
 
 
@@ -211,14 +219,25 @@ def find_numbers(results, image):
                 num, conf = template_match(num_img)
 
                 # Create new image with information
-                num_img = cv.copyMakeBorder(
+                res_img = cv.copyMakeBorder(
                     num_img, 0, 0, 0, 100, 
                     borderType=cv.BORDER_CONSTANT, 
                     value= 0
                 )
-                num_img = cv.putText(num_img, f"Number: {num} \nConfidence: \n{conf:4f}", (90, 20), cv.FONT_HERSHEY_PLAIN, 1, 255, 1)
-                cv.imshow("Classification", num_img)
 
+                mod = "Tem"
+                if (conf < 0.8):
+                    num_tensor = TF.to_tensor(num_img).unsqueeze(0).to(device)
+                    with torch.inference_mode():
+                        cnn_output = cnn(num_tensor)
+                        if (torch.max(torch.softmax(cnn_output, dim=1)).item() > conf):
+                            num = torch.argmax(cnn_output, dim=1).item()
+                            conf = torch.max(torch.softmax(cnn_output, dim=1)).item()
+                            mod = "CNN"
+                
+                res_img = cv.putText(res_img, f"Number: {num} \n{mod} Conf: \n{conf:4f}", (90, 20), cv.FONT_HERSHEY_PLAIN, 1, 255, 1)
+
+                cv.imshow("Classification", res_img)
                 cv.waitKey(0)
                 cv.destroyWindow("Classification")
 

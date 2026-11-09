@@ -4,8 +4,22 @@ import cv2 as cv
 import numpy as np
 from pathlib import Path
 import math
+import torch
+import torchvision.transforms.functional as TF
 
-model = YOLO("Vision/best.pt").to("mps") # Set to 'cpu' if you have Windows or non-M Mac, or 'cuda' if you have Nvidia GPU
+"""IMPORTANT"""
+"""Make sure you have ran creation_cnn.py in the CNN_Generator folder and the following path points to right file"""
+cnn_model_path = "Vision/CNN_Generator/team_air_gcp_localization_protoype.pt2"
+
+device = (
+    "cuda"
+    if torch.cuda.is_available()
+    else "mps"
+    if torch.backends.mps.is_available()
+    else "cpu"
+)
+
+model = YOLO("Vision/best.pt").to(device)
 
 """
 This file is for prototyping. Once we verify final values, we should create a final file with fixed values
@@ -17,6 +31,11 @@ height = 256
 width = height
 # The other three experimental numbers are the padding and size_sq in analyze_squares() and the ratios in retrieve_numbers()
 # Also figure out threshold value formula for how close of image border we actually consider
+
+"""Custom CNN"""
+exported_program = torch.export.load(cnn_model_path)
+cnn = exported_program.module()
+
 
 """Find Squares Algo"""
 # Extract corners from the square (YOLO26 outputs a segmentation maks, not the points themselves)
@@ -221,8 +240,8 @@ def display_squares(results, image):
                 cv.destroyWindow("Number")
 
 """Classification with template matching"""
-def sigmoid(x):
-    return 2 / (1 + math.exp(20*x))
+def conf_func(diff, val):
+    return ((2 / (1 + math.exp(-20*diff))) - 1) * (1 / (1 + math.exp(-3.7*val)))
 
 # Run template matching
 def template_match(img):
@@ -237,9 +256,9 @@ def template_match(img):
 
     arr = sorted(l)
     # num, conf
-    return np.argmax(np.array(l)), 1 - sigmoid(arr[-1] - arr[-2])
+    return np.argmax(np.array(l)), conf_func(arr[-1] - arr[-2], arr[-1])
 
-# Classification with display
+# Classification with display (Moddified to include CNN)
 def find_numbers(results, image):
     for i, result in enumerate(results):
         # Checks if there are results
@@ -247,7 +266,6 @@ def find_numbers(results, image):
             print(f"No results found in image {i}")
             continue
 
-        i = 1
         for polygon in result.masks.xy:
             corners = extract_corners(polygon, image.shape)
             if corners is not None:
@@ -256,14 +274,25 @@ def find_numbers(results, image):
                 num, conf = template_match(num_img)
 
                 # Create new image with information
-                num_img = cv.copyMakeBorder(
+                res_img = cv.copyMakeBorder(
                     num_img, 0, 0, 0, 100, 
                     borderType=cv.BORDER_CONSTANT, 
                     value= 0
                 )
-                num_img = cv.putText(num_img, f"Number: {num} \nConfidence: \n{conf:4f}", (90, 20), cv.FONT_HERSHEY_PLAIN, 1, 255, 1)
-                cv.imshow("Classification", num_img)
 
+                mod = "Tem"
+                if (conf < 0.8):
+                    num_tensor = TF.to_tensor(num_img).unsqueeze(0).to(device)
+                    with torch.inference_mode():
+                        cnn_output = cnn(num_tensor)
+                        if (torch.max(torch.softmax(cnn_output, dim=1)).item() > conf):
+                            num = torch.argmax(cnn_output, dim=1).item()
+                            conf = torch.max(torch.softmax(cnn_output, dim=1)).item()
+                            mod = "CNN"
+                
+                res_img = cv.putText(res_img, f"Number: {num} \n{mod} Conf: \n{conf:4f}", (90, 20), cv.FONT_HERSHEY_PLAIN, 1, 255, 1)
+
+                cv.imshow("Classification", res_img)
                 cv.waitKey(0)
                 cv.destroyWindow("Classification")
 
