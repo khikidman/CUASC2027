@@ -1,0 +1,198 @@
+(kicad_sch
+	(version 20260306)
+	(generator "eeschema")
+	(generator_version "10.0")
+	(uuid "458df865-7fc2-4e32-84dd-a031a05c4c54")
+	(paper "A4")
+	(lib_symbols)
+	(sheet
+		(at 135.255 102.87)
+		(size 20.955 23.495)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(stroke
+			(width 0.1524)
+			(type solid)
+		)
+		(fill
+			(color 0 0 0 0)
+		)
+		(uuid "1f5de09e-450f-49ff-aea8-cda844b0a0f6")
+		(property "Sheetname" "Jetson Power"
+			(at 135.255 102.1584 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left bottom)
+			)
+		)
+		(property "Sheetfile" "jetson_power.kicad_sch"
+			(at 135.255 126.9496 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left top)
+			)
+		)
+		(instances
+			(project "low_current_pdb"
+				(path "/458df865-7fc2-4e32-84dd-a031a05c4c54"
+					(page "4")
+				)
+			)
+		)
+	)
+	(sheet
+		(at 219.075 85.725)
+		(size 20.955 24.765)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(stroke
+			(width 0.1524)
+			(type solid)
+		)
+		(fill
+			(color 0 0 0 0)
+		)
+		(uuid "24e3f31b-cd70-4692-8f91-50060f230428")
+		(property "Sheetname" "Auxiliary Outputs"
+			(at 219.075 85.0134 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left bottom)
+			)
+		)
+		(property "Sheetfile" "auxiliary_outputs.kicad_sch"
+			(at 219.075 111.0746 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left top)
+			)
+		)
+		(instances
+			(project "low_current_pdb"
+				(path "/458df865-7fc2-4e32-84dd-a031a05c4c54"
+					(page "5")
+				)
+			)
+		)
+	)
+	(sheet
+		(at 135.89 67.31)
+		(size 20.32 21.59)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(stroke
+			(width 0.1524)
+			(type solid)
+		)
+		(fill
+			(color 0 0 0 0)
+		)
+		(uuid "99bfc6c6-6ba5-4692-9720-e93f16fb1c8d")
+		(property "Sheetname" "Cube Power"
+			(at 135.89 66.5984 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left bottom)
+			)
+		)
+		(property "Sheetfile" "cube_power.kicad_sch"
+			(at 135.89 89.4846 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left top)
+			)
+		)
+		(instances
+			(project "low_current_pdb"
+				(path "/458df865-7fc2-4e32-84dd-a031a05c4c54"
+					(page "3")
+				)
+			)
+		)
+	)
+	(sheet
+		(at 58.42 85.725)
+		(size 19.685 20.32)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(stroke
+			(width 0.1524)
+			(type solid)
+		)
+		(fill
+			(color 0 0 0 0)
+		)
+		(uuid "b21aa42b-cda3-439b-80a4-1a18fdefd4da")
+		(property "Sheetname" "Input Protection"
+			(at 58.42 85.0134 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left bottom)
+			)
+		)
+		(property "Sheetfile" "input_protection.kicad_sch"
+			(at 58.42 106.6296 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left top)
+			)
+		)
+		(instances
+			(project "low_current_pdb"
+				(path "/458df865-7fc2-4e32-84dd-a031a05c4c54"
+					(page "2")
+				)
+			)
+		)
+	)
+	(sheet_instances
+		(path "/"
+			(page "1")
+		)
+	)
+	(embedded_fonts no)
+)
