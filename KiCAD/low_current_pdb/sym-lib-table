@@ -1,0 +1,4 @@
+(sym_lib_table
+  (version 7)
+  (lib (name "VTOL_Symbols") (type "KiCad") (uri "${KIPRJMOD}/libraries/symbols/VTOL_Symbols.kicad_sym") (options "") (descr "VTOL project symbols"))
+)

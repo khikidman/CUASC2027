@@ -1,0 +1,4 @@
+(fp_lib_table
+  (version 7)
+  (lib (name "VTOL_Footprints") (type "KiCad") (uri "${KIPRJMOD}/libraries/footprints/VTOL_Footprints.pretty") (options "") (descr "VTOL project footprints"))
+)

@@ -1,0 +1,49 @@
+
+# KiCad Project .gitignore
+# Keep schematics, PCB, settings, and libraries in Git.
+
+# Personal / machine-specific files
+*.kicad_prl
+*.kicad_user
+
+# Automatic backups, local history, autosaves
+*-backups/
+.history/
+*.bak
+*.bck
+*-bak
+*-bak.*
+_autosave-*
+*~
+*.tmp
+
+# Lock files and caches
+~*.lck
+fp-info-cache
+*-cache*
+
+# Generated router / fabrication exports
+*.net
+*.dsn
+*.ses
+*.gbr
+*.gbrjob
+*.drl
+*.xln
+*.pos
+
+# Operating-system clutter
+.DS_Store
+Thumbs.db
+
+# IMPORTANT: Keep these files tracked in Git:
+# *.kicad_pro   - Project configuration
+# *.kicad_sch   - Schematics and hierarchical sheets
+# *.kicad_pcb   - PCB layout
+# *.kicad_sym   - Custom symbols
+# *.kicad_mod   - Custom footprints
+# *.kicad_dru   - Design rules
+# sym-lib-table - Symbol library paths
+# fp-lib-table  - Footprint library paths
+# Source BOMs, documentation, and custom libraries
+
