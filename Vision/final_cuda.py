@@ -198,7 +198,7 @@ def retrieve_numbers(rectified_image):
 
 """Classification with template matching"""
 def conf_func(diff, val):
-    return ((2 / (1 + math.exp(-20*diff))) - 1) * (1 / (1 + math.exp(-3.7*val)))
+    return ((2 / (1 + math.exp(-20*diff))) - 1) * ((2 / (1 + math.exp(-4.7*val))) - 1)
 
 # Run template matching
 def template_match(img):

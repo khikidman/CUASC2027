@@ -18,6 +18,9 @@ width = height
 # The other three experimental numbers are the padding and size_sq in analyze_squares() and the ratios in retrieve_numbers()
 # Also figure out threshold value formula for how close of image border we actually consider
 
+directory = Path('Vision/Numbers')
+files = sorted([f for f in directory.iterdir() if f.is_file() and f.suffix.lower() == ".jpg"])
+
 """Find Squares Algo"""
 # Extract corners from the square (YOLO26 outputs a segmentation maks, not the points themselves)
 # OpenCV has built in libraries for this
@@ -221,14 +224,12 @@ def display_squares(results, image):
                 cv.destroyWindow("Number")
 
 """Classification with template matching"""
-def sigmoid(x):
-    return 2 / (1 + math.exp(20*x))
+def conf_func(diff, val):
+    return ((2 / (1 + math.exp(-20*diff))) - 1) * ((2 / (1 + math.exp(-4.7*val))) - 1)
 
 # Run template matching
 def template_match(img):
-    directory = Path('Vision/Numbers')
     l = []
-    files = sorted([f for f in directory.iterdir() if f.is_file() and f.suffix.lower() == ".jpg"])
     # In the final file, we should load the files into cuda before run
     for entry in files:
         template = cv.imread(entry)[:, :, 1]
@@ -237,7 +238,8 @@ def template_match(img):
 
     arr = sorted(l)
     # num, conf
-    return np.argmax(np.array(l)), 1 - sigmoid(arr[-1] - arr[-2])
+    return np.argmax(np.array(l)), conf_func(arr[-1] - arr[-2], arr[-1])
+
 
 # Classification with display
 def find_numbers(results, image):

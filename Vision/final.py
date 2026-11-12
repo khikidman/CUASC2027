@@ -183,7 +183,7 @@ def retrieve_numbers(rectified_image):
 
 """Classification with template matching"""
 def conf_func(diff, val):
-    return ((2 / (1 + math.exp(-20*diff))) - 1) * (1 / (1 + math.exp(-3.7*val)))
+    return ((2 / (1 + math.exp(-20*diff))) - 1) * ((2 / (1 + math.exp(-4.7*val))) - 1)
 
 # Run template matching
 def template_match(img):
@@ -196,7 +196,7 @@ def template_match(img):
 
     arr = sorted(l)
     # num, conf
-    return np.argmax(np.array(l)), 1 - conf_func(arr[-1] - arr[-2], arr[-1])
+    return np.argmax(np.array(l)), conf_func(arr[-1] - arr[-2], arr[-1])
 
 
 

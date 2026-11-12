@@ -36,6 +36,9 @@ width = height
 exported_program = torch.export.load(cnn_model_path)
 cnn = exported_program.module()
 
+directory = Path('Vision/Numbers')
+files = sorted([f for f in directory.iterdir() if f.is_file() and f.suffix.lower() == ".jpg"])
+
 
 """Find Squares Algo"""
 # Extract corners from the square (YOLO26 outputs a segmentation maks, not the points themselves)
@@ -245,9 +248,7 @@ def conf_func(diff, val):
 
 # Run template matching
 def template_match(img):
-    directory = Path('Vision/Numbers')
     l = []
-    files = sorted([f for f in directory.iterdir() if f.is_file() and f.suffix.lower() == ".jpg"])
     # In the final file, we should load the files into cuda before run
     for entry in files:
         template = cv.imread(entry)[:, :, 1]
