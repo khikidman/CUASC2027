@@ -5,7 +5,7 @@ import numpy as np
 from pathlib import Path
 import math
 
-model = YOLO("Vision/best.pt").to("mps") # Set to 'cpu' if you have Windows or non-M Mac, or 'cuda' if you have Nvidia GPU
+model = YOLO("Vision/best.pt") # Set to 'cpu' if you have Windows or non-M Mac, or 'cuda' if you have Nvidia GPU
 
 """
 This file is for prototyping. Once we verify final values, we should create a final file with fixed values
@@ -274,7 +274,7 @@ def find_numbers(results, image):
 if (1):
     # Test on an image in local directory
     img = cv.imread("Vision/Media/test_hard.jpg")
-    results = model(img, conf=0.74) # Possibly change confidence value
+    results = model.predict(img, conf=0.74, device = 0) # Possibly change confidence value
     plot = results[0].plot()
     cv.imshow("Results", plot)
     cv.waitKey(0)
