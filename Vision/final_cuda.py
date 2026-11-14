@@ -1,259 +1,224 @@
-# Make sure to intsall YOLO, OpenCV, ans NumPy
-from ultralytics import YOLO
-import cv2 as cv
-import numpy as np
 from pathlib import Path
 import math
+import cv2 as cv
+import numpy as np
 import torch
 import torchvision.transforms.functional as TF
+from ultralytics import YOLO
 
-device = (
-    "cuda"
-    if torch.cuda.is_available()
-    else "mps"
-    if torch.backends.mps.is_available()
-    else "cpu"
+"""Converted to OpenCV CUDA"""
+
+assert cv.cuda.getCudaEnabledDeviceCount() > 0, (
+    "OpenCV CUDA is not enabled. On JetPack 6.2.1, build OpenCV from source with "
+    "-D WITH_CUDA=ON -D CUDA_ARCH_BIN=8.7 (Orin Nano Ampere SM 8.7)."
 )
+cv.cuda.setDevice(0)
 
-model = YOLO("Vision/best.pt").to(device)
+device = "cuda" if torch.cuda.is_available() else "cpu"
+model = YOLO("Vision/best.pt")
 
 """Custom CNN"""
 exported_program = torch.export.load("Vision/team_air_gcp_localization_protoype.pt2")
 cnn = exported_program.module()
 
-"""This is the final file with all the final numbers hardcoded"""
-
-"""Load template matching files into GPUMat"""
-directory = Path('Vision/Numbers')
+"""Load and upload template matching files to GPU once at startup"""
+directory = Path("Vision/Numbers")
 files = sorted([f for f in directory.iterdir() if f.is_file() and f.suffix.lower() == ".jpg"])
-templates = []
+gpu_templates: list[cv.cuda_GpuMat] = []
 for entry in files:
-    gpu_temp = cv.cuda_GpuMat()
-    template = cv.imread(entry)[:, :, 1]
-    gpu_temp.upload(template)
-    templates.append(gpu_temp)
+    # Ensure contiguous single-channel green array before uploading to GpuMat
+    template = np.ascontiguousarray(cv.imread(str(entry))[:, :, 1])
+    gpu_tmpl = cv.cuda_GpuMat()
+    gpu_tmpl.upload(template)
+    gpu_templates.append(gpu_tmpl)
 
-"""Find Squares Algo: CPU"""
-# Extract corners from the square (YOLO26 outputs a segmentation maks, not the points themselves)
-# OpenCV has built in libraries for this
-def extract_corners(polygon, shape):
-    # We first check if image is fully captured
-    # Image shape
-    h, w = shape
-    # Split into x and y arrays
+# Reusable CUDA template matcher (avoids per-call handle initialization)
+template_matcher = cv.cuda.createTemplateMatching(cv.CV_8UC1, cv.TM_CCOEFF_NORMED)
+
+
+"""Find Squares Algo (CPU - small 1D polygon contour operations)"""
+def extract_corners(polygon: np.ndarray, shape: tuple[int, ...]) -> np.ndarray | None:
+    h, w = shape[:2]
     x = polygon[:, 0]
     y = polygon[:, 1]
 
-    # We don't consider if boundaries are not in (1-2*threshold)
     threshold = 0.01
-
-    # Check
     valid = (
-        threshold*w <= x.min() and x.max() < (1-threshold)*w
-        and threshold*h < y.min() and y.max() < (1-threshold)*h
+        threshold * w <= x.min()
+        and x.max() < (1 - threshold) * w
+        and threshold * h <= y.min()
+        and y.max() < (1 - threshold) * h
     )
 
     if not valid:
-        print("Captured image to close to borders, skipping")
+        print("Captured image too close to borders, skipping")
         return None
 
     contour = np.asarray(polygon, dtype=np.float32).reshape(-1, 1, 2)
     perimeter = cv.arcLength(contour, True)
 
-    for epsilon_factor in [0.01, 0.02, 0.03, 0.05]:
-        # RDP Algo
+    for epsilon_factor in (0.01, 0.02, 0.03, 0.05):
         approx = cv.approxPolyDP(contour, epsilon_factor * perimeter, True)
         if len(approx) == 4:
-            if (epsilon_factor == 0.05):
-                # Should end earlier; if not, images are overly noisy
+            if epsilon_factor == 0.05:
                 print("Received high noise")
-
             return approx.reshape(4, 2)
 
     print("Captured non-square; likely partially captured")
     return None
 
-# Actually fix the image depending on the perspective of the square, and return a rectified image
-"""CPU"""
-def rectify_target(image, corners):
-    # Sort corners cyclically around their centroid
+"""Performs perspective transform with CUDA"""
+def rectify_target(gpu_image: cv.cuda_GpuMat, corners: np.ndarray) -> cv.cuda_GpuMat:
     center = corners.mean(axis=0)
-
-    angles = np.arctan2(
-        corners[:, 1] - center[1],
-        corners[:, 0] - center[0]
-    )
-
+    angles = np.arctan2(corners[:, 1] - center[1], corners[:, 0] - center[0])
     corners = corners[np.argsort(angles)]
 
-    # Map sorted points to spots on final image
-    destination = np.array([
-        [0, 0],
-        [255, 0],
-        [255, 255],
-        [0, 255]
-    ], dtype=np.float32)
+    destination = np.array(
+        [[0, 0], [255, 0], [255, 255], [0, 255]],
+        dtype=np.float32,
+    )
 
-    # Calculate homography matrix for transformation
-    H = cv.getPerspectiveTransform(corners.astype(np.float32),destination)
-    """GPU"""
-    dst = cv.cuda.GpuMat(256, 256, img.type())
-    cv.cuda.warpPerspective(image, dst, H, (256, 256), flags=cv.INTER_LINEAR)
-    return dst
-    
+    # 3x3 homography is computed on CPU; warp runs on CUDA
+    H = cv.getPerspectiveTransform(corners.astype(np.float32), destination)
+    return cv.cuda.warpPerspective(gpu_image, H, (256, 256))
 
-"""Display Numbers from Square Algo"""
-"""IDK if CPU or GPU"""
-# Find where the white and black triangles are located
-def analyze_squares(image, padding=10):
-    """
-    Explanation of params:
-    Image shape (256, 256) = (size, size) GPUMAT
-    Size: sampling square side length
-    Padding: distance from the corresponding outer edge
 
-    Credit to Khi for the idea
-    """
-
+"""Display Numbers from Square Algo (GPU GpuMat operations)"""
+def analyze_squares(gpu_rectified: cv.cuda_GpuMat, padding: int = 10) -> tuple[str, str]:
     N = 256
     size_sq = 48
-    center = (256 - size_sq) // 2
+    center = (N - size_sq) // 2
 
-    # Division
+    # GpuMat does not support NumPy [y1:y2, x1:x2] slicing in Python;
+    # rowRange().colRange() creates zero-copy GPU ROI views.
     regions = {
-        "top": image[
-            padding:padding + size_sq,
-            center:center + size_sq
-        ],
-
-        "bottom": image[
-            N - padding - size_sq:N - padding,
-            center:center + size_sq
-        ],
-
-        "left": image[
-            center:center + size_sq,
-            padding:padding + size_sq
-        ],
-
-        "right": image[
-            center:center + size_sq,
-            N - padding - size_sq:N - padding
-        ]
+        "top": gpu_rectified.rowRange(
+            padding, padding + size_sq).colRange(
+            center, center + size_sq
+        ),
+        "bottom": gpu_rectified.rowRange(
+            N - padding - size_sq, N - padding).colRange(
+            center, center + size_sq
+        ),
+        "left": gpu_rectified.rowRange(
+            center, center + size_sq).colRange(
+            padding, padding + size_sq
+        ),
+        "right": gpu_rectified.rowRange(
+            center, center + size_sq).colRange(
+            N - padding - size_sq, N - padding
+        ),
     }
 
-    # Calculate sum for each view
-    # Should be efficient np on cuda
+    # Compute region sums directly on GPU via absSum (uint8 values >= 0)
     sums = {
-        name: cv.cuda.sum(region)
-        for name, region in regions.items()
+        name: cv.cuda.absSum(region)[0] for name, region in regions.items()
     }
 
     horizontal = sums["left"] + sums["right"]
     vertical = sums["top"] + sums["bottom"]
 
-    if horizontal > vertical: 
-        # Black triangles are on left and right
+    if horizontal > vertical:
         axis = "horizontal"
         candidates = ("left", "right")
     else:
-        # Black triangles are on top and bottom
         axis = "vertical"
         candidates = ("top", "bottom")
 
-    # The numbered triangle should be darker, so lower green value
     number_side = min(candidates, key=lambda x: sums[x])
-
     return axis, number_side
 
-# This returns a np array of shape (256, 256/2) or (256, heigh/2) = (256, 128) currently containing number
-"""GPU"""
-"""PRBLY HAVE TO CONVERT FROM GPUMAT TO TORCH TENSOR"""
-"""THIS IS WHAT GOES INTO IMAGE CLASSIFICATION MODEL"""
-def retrieve_numbers(rectified_image):
-    axis, number_side = analyze_squares(rectified_image)
 
-    # half will be GPUMat
-    half = None
-    # Shape of rectified_image is (256, 256)
+def retrieve_numbers(gpu_rectified: cv.cuda_GpuMat) -> cv.cuda_GpuMat:
+    axis, number_side = analyze_squares(gpu_rectified)
+
     if axis == "horizontal":
-        # Slice from the middle of the 256 to the ends
-        half = rectified_image[:, 128:] if number_side == "right" else rectified_image[:, :128]
+        gpu_half = (
+            gpu_rectified.colRange(128, 256)
+            if number_side == "right"
+            else gpu_rectified.colRange(0, 128)
+        )
         if number_side == "left":
-            half = cv.cuda.flip(half, flipCode = 1)
+            gpu_half = cv.cuda.flip(gpu_half, -1)
     else:
-        # Slice from the middle of the 256 to the ends
-        half = rectified_image[128:, :] if number_side == "bottom" else rectified_image[:128, :]
-        
+        gpu_half = (
+            gpu_rectified.rowRange(128, 256)
+            if number_side == "bottom"
+            else gpu_rectified.rowRange(0, 128)
+        )
+        # Exact 90-degree rotations on GPU via transpose + flip (zero interpolation)
+        gpu_transposed = cv.cuda.transpose(gpu_half)
         if number_side == "top":
-            half = cv.cuda.rotate(half, rotateCode=cv.ROTATE_90_CLOCKWISE)
+            # Equivalent to cv.ROTATE_90_CLOCKWISE
+            gpu_half = cv.cuda.flip(gpu_transposed, 1)
         else:
-            half = cv.cuda.rotate(half, rotateCode=cv.ROTATE_90_COUNTERCLOCKWISE)
+            # Equivalent to cv.ROTATE_90_COUNTERCLOCKWISE
+            gpu_half = cv.cuda.flip(gpu_transposed, 0)
 
-    num = half[
-        74 : 168, 
-        40 : 120
-    ] 
-    return num
-
-"""Classification with template matching"""
-def conf_func(diff, val):
-    return ((2 / (1 + math.exp(-20*diff))) - 1) * ((2 / (1 + math.exp(-4.7*val))) - 1)
-
-# Run template matching
-def template_match(img):
-    l = []
-    for template in templates:
-        method = cv.TM_CCOEFF_NORMED
-        matcher = cv.cuda.createTemplateMatching(img.type(), method)
-        result_gpu = matcher.match(img, template)
-
-        # Download the matrix to parse value limits
-        result_cpu = result_gpu.download()
-        max_val = cv.minMaxLoc(result_cpu)[1]
-        l.append(max_val)
-
-    arr = sorted(l)
-    # num, conf
-    return np.argmax(np.array(l)), conf_func(arr[-1] - arr[-2], arr[-1])
+    # Clone the 94x80 ROI so downstream matchTemplate receives contiguous GPU memory
+    return gpu_half.rowRange(74, 168).colRange(40, 120).clone()
 
 
-def return_points(results, image):
+"""Classification with CUDA template matching"""
+def conf_func(diff: float, val: float) -> float:
+    return ((2 / (1 + math.exp(-20 * diff))) - 1) * (
+        (2 / (1 + math.exp(-4.7 * val))) - 1
+    )
+
+
+"""Run Template Macthing on CUDA"""
+def template_match(gpu_img: cv.cuda_GpuMat) -> tuple[int, float]:
+    scores = []
+    for gpu_tmpl in gpu_templates:
+        gpu_res = template_matcher.match(gpu_img, gpu_tmpl)
+        _, max_val, _, _ = cv.cuda.minMaxLoc(gpu_res)
+        scores.append(max_val)
+
+    arr = sorted(scores)
+    best_idx = int(np.argmax(scores))
+    return best_idx, conf_func(arr[-1] - arr[-2], arr[-1])
+
+
+def return_points(results, image: np.ndarray) -> None:
+    # Upload input frame to GPU once per frame
+    gpu_frame = cv.cuda_GpuMat()
+    gpu_frame.upload(np.ascontiguousarray(image))
+
+    # Extract green channel on GPU if a 3-channel BGR image was passed
+    if gpu_frame.channels() == 3:
+        gpu_green = cv.cuda.split(gpu_frame)[1]
+    else:
+        gpu_green = gpu_frame
+
     for i, result in enumerate(results):
-        if (result.masks == None):
-                print(f"No results found in image {i}")
-                continue
+        if result.masks is None:
+            print(f"No results found in image {i}")
+            continue
 
         for polygon in result.masks.xy:
             corners = extract_corners(polygon, image.shape)
-            if corners is not None:
-                centroid = np.mean(corners, axis=0) # (x, y) in pixels
+            if corners is None:
+                continue
 
-                gpu_img = cv.cuda_GpuMat()
-                gpu_img.upload(image)
-                gpu_dst = rectify_target(gpu_img, corners)
+            centroid = np.mean(corners, axis=0)  # (x, y) in pixels
+            gpu_rectified = rectify_target(gpu_green, corners)
+            gpu_num_img = retrieve_numbers(gpu_rectified)
+            num, conf = template_match(gpu_num_img)
 
-                num_img = retrieve_numbers(gpu_dst) # num_img is GPUMat
+            if conf < 0.85:
+                # Download only the tiny 94x80 patch if CNN fallback is needed
+                num_img_cpu = gpu_num_img.download()
+                num_tensor = TF.to_tensor(num_img_cpu).unsqueeze(0).to(device)
+                with torch.inference_mode():
+                    cnn_output = cnn(num_tensor)
+                    probs = torch.softmax(cnn_output, dim=1)
+                    cnn_conf, cnn_num = torch.max(probs, dim=1)
+                    if cnn_conf.item() > conf:
+                        num = int(cnn_num.item())
+                        conf = float(cnn_conf.item())
 
-                num, conf = template_match(num_img)
+            if conf < 0.7:
+                print("Cannot reliably detect image; skipping")
+                continue
 
-                if (conf < 0.85):
-                    ctx = num_img.__cuda_array_interface__
-                    # This creates a torch.Tensor pointing directly to the GPU memory buffer
-                    tensor = torch.as_tensor(ctx, device='cuda')
-
-                    # Add the explicit channel dimension to achieve (1, 1, 94, 80)
-                    tensor = tensor.unsqueeze(0).unsqueeze(0)
-                    num_tensor = tensor.to(dtype=torch.float32).div(255.0)
-                    with torch.inference_mode():
-                        cnn_output = cnn(num_tensor)
-                        if (torch.max(torch.softmax(cnn_output, dim=1)).item() > conf):
-                            num = torch.argmax(cnn_output, dim=1).item()
-                            conf = torch.max(torch.softmax(cnn_output, dim=1)).item()
-
-                if (conf < 0.7):
-                    # To avoid false positives
-                    print("Cannot reliably detect image; skipping")
-                    continue
-
-                print(f"Found number {num} at pixel coordinates {centroid}")
+            print(f"Found number {num} at pixel coordinates {centroid}")
