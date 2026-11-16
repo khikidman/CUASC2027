@@ -449,6 +449,8 @@ async def main():
     print(f'Loading {args.model} on {device} ...')
 
     model = YOLO(str(args.model))
+    model = model.to("cuda")
+    print(model.device)
 
     stop = asyncio.Event()
 
