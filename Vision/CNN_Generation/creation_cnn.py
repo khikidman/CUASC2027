@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 
 """MAKE SURE THIS IS THE RIGHT PATH FOR YOU"""
-path = "Vision/CNN_Generator/team_air_gcp_localization_protoype.pth"
+path = "team_air_gcp_localization_protoype.pth"
 
 class ConvNet(nn.Module):
   def __init__(self):
@@ -58,16 +58,12 @@ class ConvNet(nn.Module):
 
 device = (
     "cuda"
-    if torch.cuda.is_available()
-    else "mps"
-    if torch.backends.mps.is_available()
-    else "cpu"
 )
 
 print(device)
 
 model = ConvNet()
-model.load_state_dict(torch.load(path, weights_only=True))
+model.load_state_dict(torch.load(path, weights_only=True, map_location=device))
 model = model.to(device)
 model.eval()
 exported_program = torch.export.export(model, args=(torch.randn(1, 1, 94, 80).to(device),))

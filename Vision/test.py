@@ -9,17 +9,14 @@ import torchvision.transforms.functional as TF
 
 """IMPORTANT"""
 """Make sure you have ran creation_cnn.py in the CNN_Generator folder and the following path points to right file"""
-cnn_model_path = "Vision/CNN_Generator/team_air_gcp_localization_protoype.pt2"
+cnn_model_path = "CNN_Generator/team_air_gcp_localization_protoype.pt2"
 
 device = (
     "cuda"
-    if torch.cuda.is_available()
-    else "mps"
-    if torch.backends.mps.is_available()
-    else "cpu"
+
 )
 
-model = YOLO("Vision/best.pt").to(device)
+model = YOLO("best.pt").to(device)
 
 """
 This file is for prototyping. Once we verify final values, we should create a final file with fixed values
@@ -36,7 +33,7 @@ width = height
 exported_program = torch.export.load(cnn_model_path)
 cnn = exported_program.module()
 
-directory = Path('Vision/Numbers')
+directory = Path('Numbers')
 files = sorted([f for f in directory.iterdir() if f.is_file() and f.suffix.lower() == ".jpg"])
 
 
@@ -308,8 +305,8 @@ if (1):
     # Test on an image in local directory
     img = cv.imread("Vision/Media/test_hard.jpg")
     results = model(img, conf=0.74) # Possibly change confidence value
-    plot = results[0].plot()
-    cv.imshow("Results", plot)
+    
+    cv.imshow("Results", img)
     cv.waitKey(0)
 
     find_numbers(results, img[:, :, 1]) # Extract just the greens

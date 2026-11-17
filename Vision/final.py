@@ -6,25 +6,25 @@ from pathlib import Path
 import math
 import torch
 import torchvision.transforms.functional as TF
+import time
+import vpi
+
+print(vpi)
 
 device = (
     "cuda"
-    if torch.cuda.is_available()
-    else "mps"
-    if torch.backends.mps.is_available()
-    else "cpu"
 )
 
-model = YOLO("Vision/best.pt").to(device)
+model = YOLO("best.pt").to(device)
 
 """Custom CNN"""
-exported_program = torch.export.load("Vision/team_air_gcp_localization_protoype.pt2")
+exported_program = torch.export.load("CNN_Generation/team_air_gcp_localization_protoype.pt2")
 cnn = exported_program.module()
 
 """This is the final file with all the final numbers hardcoded"""
 
 """Load template matching files"""
-directory = Path('Vision/Numbers')
+directory = Path('Numbers')
 files = sorted([f for f in directory.iterdir() if f.is_file() and f.suffix.lower() == ".jpg"])
 
 """Find Squares Algo"""
@@ -216,13 +216,18 @@ def find_numbers(results, image):
             if corners is not None:
                 rectified_image = rectify_target(image, corners)
                 num_img = retrieve_numbers(rectified_image)
+                
+                start = time.perf_counter()
                 num, conf = template_match(num_img)
+                print("template match:", time.perf_counter() - start)
 
                 mod = "Tem"
                 if (conf < 0.85):
                     num_tensor = TF.to_tensor(num_img).unsqueeze(0).to(device)
                     with torch.inference_mode():
+                        start = time.perf_counter()
                         cnn_output = cnn(num_tensor)
+                        print(time.perf_counter() - start)
                         if (torch.max(torch.softmax(cnn_output, dim=1)).item() > conf):
                             num = torch.argmax(cnn_output, dim=1).item()
                             conf = torch.max(torch.softmax(cnn_output, dim=1)).item()
@@ -235,12 +240,12 @@ def find_numbers(results, image):
 
                 # Create new image with information
                 res_img = cv.copyMakeBorder(
-                    num_img, 0, 0, 0, 100, 
+                    num_img, 0, 0, 0, 500, 
                     borderType=cv.BORDER_CONSTANT, 
                     value= 0
                 )
                 
-                res_img = cv.putText(res_img, f"Number: {num} \n{mod} Conf: \n{conf:4f}", (90, 20), cv.FONT_HERSHEY_PLAIN, 1, 255, 1)
+                res_img = cv.putText(res_img, f"Number: {num}           {mod} Conf: {conf:4f}", (90, 20), cv.FONT_HERSHEY_PLAIN, 1, 255, 1)
 
                 cv.imshow("Classification", res_img)
                 cv.waitKey(0)
@@ -251,11 +256,12 @@ def find_numbers(results, image):
 # If it is 1, you can use an image in local directory; change to 0 to use webcam
 if (1):
     # Test on an image in local directory
-    img = cv.imread("Vision/Media/test_hard.jpg")
+    img = cv.imread("Media/rotated_test1.jpg")
     results = model(img, conf=0.74) # Possibly change confidence value
-    plot = results[0].plot()
-    cv.imshow("Results", plot)
+
+    cv.imshow("Results", img)
     cv.waitKey(0)
+    cv.destroyWindow("Results")
 
     find_numbers(results, img[:, :, 1]) # Extract just the greens
     #display_image(results, img[:, :, 1])
