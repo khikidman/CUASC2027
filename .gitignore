@@ -47,3 +47,4 @@ Thumbs.db
 # fp-lib-table  - Footprint library paths
 # Source BOMs, documentation, and custom libraries
 
+__pycache__
