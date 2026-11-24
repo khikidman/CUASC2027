@@ -4,13 +4,16 @@ import cv2 as cv
 import numpy as np
 import torch
 import torchvision.transforms.functional as TF
+from ultralytics import YOLO
 import vpi
 
 device = ("cuda")
 
+_rectified = vpi.Image((256, 256), vpi.Format.U8, flags=vpi.Backend.CUDA)
+
 """Load template matching files on CPU"""
 def _load_templates() -> list[np.ndarray]:
-    directory = Path("../Numbers")
+    directory = Path("Numbers")
     files = sorted(
         [f for f in directory.iterdir() if f.is_file() and f.suffix.lower() == ".jpg"]
     )
@@ -29,7 +32,10 @@ ROT90_CCW_XFORM = np.array(
 def _load_cnn() -> torch.fx.GraphModule: 
     exported_program = torch.export.load("team_air_gcp_localization_protoype.pt2")
     return exported_program.module()
-cnn = _load_cnn
+"""
+TODO: Optimize CNN (and YOLO)
+"""
+cnn = _load_cnn()
 
 """Find Squares Algo"""
 def _extract_corners(polygon: np.ndarray, shape: tuple[int, ...]) -> np.ndarray | None:
@@ -77,12 +83,13 @@ def _rectify_target(vpi_image: vpi.Image, corners: np.ndarray) -> vpi.Image:
     # 3x3 homography computed on CPU; perspective warp executed on VPI CUDA backend
     H = cv.getPerspectiveTransform(corners.astype(np.float32), destination)
     with vpi.Backend.CUDA:
-        return vpi_image.perspwarp(
+        vpi_image.perspwarp(
             H,
-            size=(256, 256),
+            out=_rectified,
             interp=vpi.Interp.LINEAR,
             border=vpi.Border.ZERO,
         )
+        return _rectified
 
 
 """Display Numbers from Square Algo"""
@@ -140,7 +147,6 @@ def _retrieve_numbers(vpi_rectified: vpi.Image) -> np.ndarray:
                 if number_side == "bottom"
                 else vpi.RectangleI(0, 0, 256, 128)
             )
-            print(vpi_rectified.size)
             vpi_half = vpi_rectified.view(rect)
             xform = ROT90_CW_XFORM if number_side == "top" else ROT90_CCW_XFORM
             vpi_half = vpi_half.perspwarp(
@@ -178,8 +184,8 @@ def _template_match(img: np.ndarray) -> tuple[int, float]:
 def return_points(results, vpi_image: vpi.Image, scale_factor: int) -> str:
     """
     results: Results from YOLO Model
-    vpi_image: We are going to have the images as 640x640 px VPI Image
-    scale_factor: We rescale from (640*scale_factor, 640*scale_factor), so we need to rescale back
+    vpi_image: We are going to have the images as 640\*scale_factor x 640\*scale_factor px VPI Image
+    scale_factor: We rescale to (640\*scale_factor, 640\*scale_factor), so we need to rescale back
     """
 
     for i, result in enumerate(results):
@@ -213,46 +219,6 @@ def return_points(results, vpi_image: vpi.Image, scale_factor: int) -> str:
                 print("Cannot reliably detect image; skipping")
                 continue
 
+            res = f"Number: {num}\nPixel coordinates: {centroid}\nModel: {mod}\nConfidence: {conf:.4f}\n\n"
             print(f"Number: {num}\nPixel coordinates: {centroid}\nModel: {mod}\nConfidence: {conf:.4f}\n\n")
-            
-            
-            
-def return_points2(results, image: np.ndarray) -> None:
-    # Extract single-channel green plane if a 3-channel BGR image is passed
-    green = image[:, :, 1] if image.ndim == 3 else image
-    vpi_frame = vpi.asimage(np.ascontiguousarray(green), vpi.Format.U8).convert(vpi.Format.U8, backend=vpi.Backend.CUDA)
-
-    for i, result in enumerate(results):
-        if result.masks is None:
-            print(f"No results found in image {i}")
-            continue
-
-        for polygon in result.masks.xy:
-            corners = _extract_corners(polygon, green.shape)
-            if corners is None:
-                continue
-
-            centroid = np.mean(corners, axis=0)  # (x, y) in pixels
-            vpi_rectified = _rectify_target(vpi_frame, corners)
-            num_img = _retrieve_numbers(vpi_rectified)
-            num, conf = _template_match(num_img)
-            mod = "Tem"
-
-            if conf < 0.85:
-                num_tensor = TF.to_tensor(num_img).unsqueeze(0).to(device)
-                with torch.inference_mode():
-                    cnn_output = cnn(num_tensor)
-                    probs = torch.softmax(cnn_output, dim=1)
-                    cnn_conf, cnn_num = torch.max(probs, dim=1)
-                    if cnn_conf.item() > conf:
-                        mod = "CNN"
-                        num = int(cnn_num.item())
-                        conf = float(cnn_conf.item())
-
-            if conf < 0.7:
-                print("Cannot reliably detect image; skipping")
-                continue
-
-            print(f"Number: {num}\nPixel coordinates: {centroid}\nModel: {mod}\nConfidence: {conf:.4f}\n\n")
-
-
+            return res

@@ -3,16 +3,13 @@ import cv2 as cv
 import vpi
 import numpy as np
 import torch
-from vpi_without_cuda import return_points2
+from vpi_without_cuda import return_points
 
-img = cv.imread("../Media/rotated_test1.jpg")
+img = cv.imread("../Media/test_hard.jpg")
+img = cv.resize(img, (1920, 1920), interpolation=cv.INTER_LINEAR)
 model = YOLO("best.pt")
 
-"""
 vpi_frame = vpi.asimage(np.ascontiguousarray(img), vpi.Format.RGB8)
-vpi_frame = vpi_frame.rescale((1920, 1920), interp=vpi.Interp.LINEAR, backend=vpi.Backend.CUDA)
-
-
 vpi_image_input = vpi_frame.rescale((640, 640), interp=vpi.Interp.LINEAR, backend=vpi.Backend.CUDA)
 results = None
 with vpi_image_input.rlock_cuda() as cuda_buffer:
@@ -30,7 +27,4 @@ grayscaled_input_image = vpi.Image(vpi_frame.size, vpi.Format.U8)
 with vpi.Backend.CUDA:
     vpi.mixchannels([vpi_frame], [grayscaled_input_image], [1], [0])
 
-np_array_img = vpi_frame.cpu()
-"""
-results = model(img, conf=0.74)
-return_points2(results, img[:, :, 1])
+return_points(results, grayscaled_input_image, 3)
